@@ -1,0 +1,6 @@
+*.jpg
+*.cdo
+*.wav
+*.npy
+.idea
+__pycache__
