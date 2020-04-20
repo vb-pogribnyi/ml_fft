@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import scipy.fftpack
+import matplotlib.pyplot as plt
 
 # weight = torch.tensor([
 #     [1., 0.],
@@ -16,8 +18,13 @@ class FFTModel(torch.nn.Module):
         if (np.log(len) / np.log(2)) % 1 != 0:
             raise Exception('Signal length must be power of 2')
         self.len = len
-        param_data = torch.rand([self.len // 2, 2])
-        self.weight = torch.nn.Parameter(data=param_data, requires_grad=True)
+        # param_data = torch.rand([self.len // 2, 2])
+        base_param = np.linspace(0, -3.1415, self.len // 2 + 1)
+        cos_param = np.cos(base_param)[:self.len // 2]
+        sin_param = np.sin(base_param)[:self.len // 2]
+        param_data = np.concatenate([np.expand_dims(cos_param, -1), np.expand_dims(sin_param, -1)], axis=1)
+
+        self.weight = torch.nn.Parameter(data=torch.tensor(param_data), requires_grad=True)
 
     def complex_mul(self, in_1, in_2):
         in_1_re = in_1[:, :, 0]
@@ -57,32 +64,41 @@ def train_fft_model(x, expected_output, weights=None):
     if weights is not None:
         fft_model.weight.data = weights
     opt = torch.optim.Adam(fft_model.parameters(), 0.1)
-    for i in range(50001):
+    for i in range(2001):
         opt.zero_grad()
         output = fft_model(x)
+        output = torch.sqrt(torch.sum(torch.pow(output, 2), axis=2))
         err = torch.mean(torch.pow(expected_output - output, 2))
         if i % 100 == 0:
             print(i, err)
         err.backward()
         opt.step()
 
-    return fft_model.weight
+    return fft_model
 
 
 # print(model(x))
 # exit()
 if __name__ == '__main__':
-    x = [0., 0.781, 0.975, 0.435, -0.432, -0.974, -0.783, -0.003]
-    expected_output = [[
-             [-9.9993e-04,  0.0000e+00],
-             [ 1.3631e+00, -3.3085e+00],
-             [-6.2400e-01,  6.2500e-01],
-             [-4.9912e-01,  2.0755e-01],
-             [-4.7900e-01,  0.0000e+00],
-             [-4.9912e-01, -2.0755e-01],
-             [-6.2400e-01, -6.2500e-01],
-             [ 1.3631e+00,  3.3085e+00]
-    ]]
-    trained_weights = train_fft_model(x, expected_output)
-    print(trained_weights)
-    print('done')
+    x = np.linspace(0, 6.28 * 2, 32)
+    x = np.cos(x)
+    xx = np.square(x)
+    xx -= np.mean(xx)
+    x_f = scipy.fftpack.fft(x)
+    xx_f = scipy.fftpack.fft(xx)
+
+    plt.plot(np.abs(x_f[1:len(x)//2]), linewidth=2)
+    plt.plot(np.abs(xx_f[1:len(x)//2]), linewidth=2)
+
+    # expected_output = np.concatenate([np.expand_dims(np.real(x_f), -1), np.expand_dims(np.imag(x_f), -1)], axis=1)
+    expected_output = np.abs(x_f)
+    trained_model = train_fft_model(x, expected_output)
+
+    trained_output_x = trained_model(torch.tensor(x)).cpu().detach().numpy()[0]
+    trained_output_xx = trained_model(torch.tensor(xx)).cpu().detach().numpy()[0]
+    trained_output_x = np.sqrt(np.sum(np.square(trained_output_x), axis=1))
+    trained_output_xx = np.sqrt(np.sum(np.square(trained_output_xx), axis=1))
+
+    plt.plot(np.abs(trained_output_x[1:len(x)//2]), linewidth=1)
+    plt.plot(np.abs(trained_output_xx[1:len(x)//2]), linewidth=1)
+    plt.show()
